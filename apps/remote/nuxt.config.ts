@@ -15,6 +15,11 @@ export default defineNuxtConfig({
       filename: "remoteEntry.js",
       remotes: {},
       manifest: true,
+      exposes: {
+        // Slash in the expose name keeps Bridge exports out of component
+        // auto-registration (host manifest discovery).
+        "./bridge/export-app": "./app/export-app.ts",
+      },
     },
   },
   vite: {

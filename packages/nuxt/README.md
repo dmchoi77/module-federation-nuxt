@@ -110,6 +110,41 @@ With multiple configured remotes, the remote name is included to prevent collisi
 
 Only expose names beginning with a letter and containing letters, numbers, underscores, or hyphens are registered as Nuxt components. Other MF exposes remain available through normal runtime imports.
 
+### Bridge application export (optional)
+
+To expose a full routing app (not only components), install the Bridge Vue 3 adapter and its router peer, then add a Bridge entry and list it under `config.exposes`:
+
+```sh
+pnpm add @module-federation/bridge-vue3@2.8.2 vue-router@5.2.0
+```
+
+Nuxt `4.5.1` requires `vue-router@^5.2.0`. The latest published `@module-federation/bridge-vue3` is `2.8.2` and declares the older `vue-router@4` peer, so this Nuxt example intentionally keeps Nuxt's required Router 5 rather than silently installing or suppressing a conflicting peer. Bridge 2.8.2 uses the Router APIs shared by these versions; the example's Playwright coverage verifies the `/bridge` basename and child navigation. For a non-Nuxt host, follow the adapter's declared peer contract and use Vue Router 4.
+
+```ts
+// app/export-app.ts
+import { createBridgeComponent } from "@module-federation/bridge-vue3";
+import App from "./bridge/App.vue";
+import { createBridgeRouter } from "./bridge/router";
+
+export default createBridgeComponent({
+  rootComponent: App,
+  appOptions: () => ({ router: createBridgeRouter() }),
+});
+```
+
+```ts
+moduleFederation: {
+  config: {
+    name: "catalog",
+    exposes: {
+      "./bridge/export-app": "./app/export-app.ts",
+    },
+  },
+}
+```
+
+Hosts load it with `createRemoteAppComponent` from `@module-federation/bridge-vue3` (or `@module-federation/bridge-react` for React/Next). Use a host catch-all such as `/catalog/:pathMatch(.*)*` so current `bridge-vue3` basename auto-detect works. An explicit `basename` option is tracked in [module-federation/core#4984](https://github.com/module-federation/core/pull/4984). Use a slashed expose name (e.g. `./bridge/export-app`) so host manifest discovery does not register the Bridge factory as a Nuxt component. See the example apps under `apps/host` and `apps/remote`.
+
 ## Server rendering
 
 `ssr` defaults to `true`. When Nuxt SSR is enabled, the module creates client and server federation builds:
