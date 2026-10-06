@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isJsonObject } from "./json";
 import { isMfSsrRemoteEntryImporter } from "./runtime-plugin-importer";
+import { matchesPackageSpecifier } from "./server-expose-resolver";
 
 const ROUTER_INJECTION_KEYS = [
   "matchedRouteKey",
@@ -40,16 +41,14 @@ export async function registerServerSharedExternals(
       name: "module-federation:nuxt:ssr-shared-externals",
       enforce: "pre",
       async resolveId(id) {
-        const isSharedPackage = packageNames.some(
-          (candidate) => id === candidate || id.startsWith(`${candidate}/`),
+        const isSharedPackage = packageNames.some((candidate) =>
+          matchesPackageSpecifier(id, candidate),
         );
         if (!isSharedPackage) return;
 
         if (dev) {
           return {
-            id:
-              resolvedDevImports.get(id) ||
-              (await resolveDevImport(id, rootDir)),
+            id: await resolveDevSharedImport(id, rootDir, resolvedDevImports),
             external: false,
           };
         }
@@ -72,15 +71,13 @@ export async function registerServerSharedExternals(
           async handler(id, importer) {
             if (!isMfSsrRemoteEntryImporter(importer)) return;
 
-            const isSharedPackage = packageNames.some(
-              (candidate) => id === candidate || id.startsWith(`${candidate}/`),
+            const isSharedPackage = packageNames.some((candidate) =>
+              matchesPackageSpecifier(id, candidate),
             );
             if (!isSharedPackage) return;
 
             return {
-              id:
-                resolvedDevImports.get(id) ||
-                (await resolveDevImport(id, rootDir)),
+              id: await resolveDevSharedImport(id, rootDir, resolvedDevImports),
               external: false,
             };
           },
@@ -88,19 +85,24 @@ export async function registerServerSharedExternals(
       },
       { prepend: true },
     );
-  }
-
-  if (dev) {
     const runnerImports = new Map(
       [...resolvedDevImports].filter(([packageName]) =>
         runnerPackageNames.includes(packageName),
       ),
     );
     registerDevRunnerPlugin(runnerImports);
+    if (packageNames.includes("vue-router")) {
+      registerVueRouterInjectionKeyPlugin();
+    }
   }
-  if (dev && packageNames.includes("vue-router")) {
-    registerVueRouterInjectionKeyPlugin();
-  }
+}
+
+async function resolveDevSharedImport(
+  id: string,
+  rootDir: string,
+  resolvedDevImports: Map<string, string>,
+) {
+  return resolvedDevImports.get(id) || (await resolveDevImport(id, rootDir));
 }
 
 function registerVueRouterInjectionKeyPlugin() {

@@ -49,22 +49,15 @@ const nuxtPackageRequire = createRequire(
 );
 
 test("SSR remote virtual modules are recognized as shared importers", () => {
-  assert.equal(
-    isMfSsrRemoteEntryImporter(
-      "virtual:mf-REMOTE_ENTRY_SSR_ID:__mfe_internal__remote__remoteEntry_js",
-    ),
-    true,
-  );
-  assert.equal(
-    isMfSsrRemoteEntryImporter(
-      "virtual:mf-exposes-ssr:__mfe_internal__remote__remoteEntry_js",
-    ),
-    true,
-  );
-  assert.equal(
-    isMfSsrRemoteEntryImporter("/__mf_ssr__/remoteEntry.ssr.js"),
-    true,
-  );
+  for (const importer of [
+    "virtual:mf-REMOTE_ENTRY_SSR_ID:__mfe_internal__remote__remoteEntry_js",
+    "/@id/virtual:mf-REMOTE_ENTRY_SSR_ID:remote",
+    "/@id/__x00__virtual:mf-exposes-ssr:remote",
+    "\0virtual:mf-exposes-ssr:remote",
+    "/__mf_ssr__/remoteEntry.ssr.js",
+  ]) {
+    assert.equal(isMfSsrRemoteEntryImporter(importer), true, importer);
+  }
   assert.equal(
     isMfSsrRemoteEntryImporter("virtual:mf-REMOTE_ENTRY_ID:remote"),
     false,
