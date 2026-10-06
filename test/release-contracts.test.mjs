@@ -4,7 +4,10 @@ import { createRequire } from "node:module";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
-import { isMfRemoteEntryImporter } from "../packages/nuxt/src/runtime-plugin-importer.ts";
+import {
+  isMfRemoteEntryImporter,
+  isMfSsrRemoteEntryImporter,
+} from "../packages/nuxt/src/runtime-plugin-importer.ts";
 import {
   assertUniqueRemoteComponents,
   createRemoteComponent,
@@ -44,6 +47,30 @@ import { repoRoot } from "./helpers/release.mjs";
 const nuxtPackageRequire = createRequire(
   resolve(repoRoot, "packages/nuxt/package.json"),
 );
+
+test("SSR remote virtual modules are recognized as shared importers", () => {
+  assert.equal(
+    isMfSsrRemoteEntryImporter(
+      "virtual:mf-REMOTE_ENTRY_SSR_ID:__mfe_internal__remote__remoteEntry_js",
+    ),
+    true,
+  );
+  assert.equal(
+    isMfSsrRemoteEntryImporter(
+      "virtual:mf-exposes-ssr:__mfe_internal__remote__remoteEntry_js",
+    ),
+    true,
+  );
+  assert.equal(
+    isMfSsrRemoteEntryImporter("/__mf_ssr__/remoteEntry.ssr.js"),
+    true,
+  );
+  assert.equal(
+    isMfSsrRemoteEntryImporter("virtual:mf-REMOTE_ENTRY_ID:remote"),
+    false,
+  );
+  assert.equal(isMfSsrRemoteEntryImporter(undefined), false);
+});
 
 test("Rspack SSR normalizes Vue runtime aliases without changing unrelated package entries", () => {
   for (const request of [

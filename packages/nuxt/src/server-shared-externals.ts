@@ -2,6 +2,7 @@ import { addVitePlugin, resolvePath } from "@nuxt/kit";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { isJsonObject } from "./json";
+import { isMfSsrRemoteEntryImporter } from "./runtime-plugin-importer";
 
 const ROUTER_INJECTION_KEYS = [
   "matchedRouteKey",
@@ -57,6 +58,37 @@ export async function registerServerSharedExternals(
     },
     { client: false, prepend: true },
   );
+
+  // Vite 8 resolves the SSR remote entry in a virtual environment that is
+  // not covered by Nuxt's server-only plugin wrapper. Resolve its bare shared
+  // imports explicitly while leaving normal browser imports to MF Vite.
+  if (dev) {
+    addVitePlugin(
+      {
+        name: "module-federation:nuxt:ssr-remote-shared-resolver",
+        enforce: "pre",
+        resolveId: {
+          order: "pre",
+          async handler(id, importer) {
+            if (!isMfSsrRemoteEntryImporter(importer)) return;
+
+            const isSharedPackage = packageNames.some(
+              (candidate) => id === candidate || id.startsWith(`${candidate}/`),
+            );
+            if (!isSharedPackage) return;
+
+            return {
+              id:
+                resolvedDevImports.get(id) ||
+                (await resolveDevImport(id, rootDir)),
+              external: false,
+            };
+          },
+        },
+      },
+      { prepend: true },
+    );
+  }
 
   if (dev) {
     const runnerImports = new Map(
