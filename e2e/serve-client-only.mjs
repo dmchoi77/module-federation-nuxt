@@ -1,9 +1,12 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { spawn } from "node:child_process";
+import { resolve } from "node:path";
 import {
   createNuxtFixture,
   nuxtCliPath,
+  runCommand,
+  serverEnv,
+  startNitro,
+  stopProcess,
   waitForResponse,
 } from "../test/helpers/release.mjs";
 
@@ -17,53 +20,19 @@ let remoteServer;
 let hostServer;
 let stopping = false;
 
-function run(command, args, cwd) {
-  return new Promise((resolveExit, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        NODE_OPTIONS: [process.env.NODE_OPTIONS, "--dns-result-order=ipv4first"]
-          .filter(Boolean)
-          .join(" "),
-      },
-      stdio: "inherit",
-    });
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      if (code === 0) resolveExit();
-      else reject(new Error(`${command} exited with ${code ?? signal}`));
-    });
-  });
-}
-
-function startServer(root, port) {
-  return spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
+function build(app, root) {
+  return runCommand(process.execPath, [nuxtCliPath(app), "build", root], {
     cwd: root,
-    env: {
-      ...process.env,
-      HOST: "127.0.0.1",
-      NODE_ENV: "production",
-      NODE_OPTIONS: [process.env.NODE_OPTIONS, "--dns-result-order=ipv4first"]
-        .filter(Boolean)
-        .join(" "),
-      PORT: String(port),
-    },
-    stdio: "inherit",
+    env: serverEnv(),
   });
-}
-
-async function stopServer(child) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise((resolveExit) => child.once("exit", resolveExit));
 }
 
 async function cleanup() {
   if (stopping) return;
   stopping = true;
-  await Promise.all([stopServer(hostServer), stopServer(remoteServer)]);
+  await Promise.all(
+    [hostServer, remoteServer].filter(Boolean).map(stopProcess),
+  );
   await Promise.all([
     remoteRoot && rm(remoteRoot, { recursive: true, force: true }),
     hostRoot && rm(hostRoot, { recursive: true, force: true }),
@@ -123,24 +92,16 @@ try {
     "<template><RemoteWidget /></template>\n",
   );
 
-  await run(
-    process.execPath,
-    [nuxtCliPath("remote"), "build", remoteRoot],
-    remoteRoot,
-  );
-  remoteServer = startServer(remoteRoot, remotePort);
+  await build("remote", remoteRoot);
+  remoteServer = startNitro(remoteRoot, remotePort, remoteRoot);
   await waitForResponse(
     remoteEntry,
     remoteServer,
     ({ status }) => status === 200,
   );
 
-  await run(
-    process.execPath,
-    [nuxtCliPath("host"), "build", hostRoot],
-    hostRoot,
-  );
-  hostServer = startServer(hostRoot, hostPort);
+  await build("host", hostRoot);
+  hostServer = startNitro(hostRoot, hostPort, hostRoot);
   await waitForResponse(`http://127.0.0.1:${hostPort}/`, hostServer);
 } catch (error) {
   await cleanup();

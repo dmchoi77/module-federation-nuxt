@@ -304,21 +304,26 @@ export async function walkFiles(directory) {
   return files;
 }
 
+export function serverEnv(env = {}) {
+  return {
+    ...process.env,
+    HOST: "127.0.0.1",
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, "--dns-result-order=ipv4first"]
+      .filter(Boolean)
+      .join(" "),
+    ...env,
+  };
+}
+
+// `app` is an app name under apps/ or an absolute app root.
 export function startNitro(app, port, cwd) {
-  const entry = resolve(repoRoot, `apps/${app}/.output/server/index.mjs`);
+  const appRoot = isAbsolute(app) ? app : resolve(repoRoot, `apps/${app}`);
+  const entry = resolve(appRoot, ".output/server/index.mjs");
   assert.ok(existsSync(entry), `${app} server output is missing`);
 
   const child = spawn(process.execPath, [entry], {
     cwd: cwd || dirname(entry),
-    env: {
-      ...process.env,
-      HOST: "127.0.0.1",
-      NODE_ENV: "production",
-      NODE_OPTIONS: [process.env.NODE_OPTIONS, "--dns-result-order=ipv4first"]
-        .filter(Boolean)
-        .join(" "),
-      PORT: String(port),
-    },
+    env: serverEnv({ NODE_ENV: "production", PORT: String(port) }),
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.output = "";
@@ -339,13 +344,7 @@ export function startNuxtDev(app, port) {
     [nuxtCliPath(app), "dev", "--port", String(port)],
     {
       cwd: appRoot,
-      env: {
-        ...process.env,
-        HOST: "127.0.0.1",
-        NODE_OPTIONS: [process.env.NODE_OPTIONS, "--dns-result-order=ipv4first"]
-          .filter(Boolean)
-          .join(" "),
-      },
+      env: serverEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
