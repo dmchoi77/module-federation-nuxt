@@ -337,17 +337,25 @@ export function startNitro(app, port, cwd) {
   return child;
 }
 
-export function startNuxtDev(app, port) {
-  const appRoot = resolve(repoRoot, `apps/${app}`);
-  const child = spawn(
-    process.execPath,
-    [nuxtCliPath(app), "dev", "--port", String(port)],
-    {
-      cwd: appRoot,
-      env: serverEnv(),
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+const useProcessGroup = process.platform !== "win32";
+const processGroups = new WeakSet();
+
+export function startNuxtDev(app, port, cwd) {
+  const appRoot = cwd || resolve(repoRoot, `apps/${app}`);
+  const cliArgs = [nuxtCliPath(app), "dev"];
+  if (cwd) cliArgs.push(cwd);
+  cliArgs.push("--host", "127.0.0.1", "--port", String(port));
+
+  const child = spawn(process.execPath, cliArgs, {
+    cwd: appRoot,
+    env: serverEnv({ NODE_ENV: "development" }),
+    // Nuxt dev forks workers (including the MF dts dev worker) that inherit
+    // these pipes. Give them a process group so stopProcess can signal them
+    // all; an orphaned worker keeps the pipes open and the test file alive.
+    detached: useProcessGroup,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (useProcessGroup) processGroups.add(child);
   child.output = "";
 
   for (const stream of [child.stdout, child.stderr]) {
@@ -420,21 +428,39 @@ export async function getFreePort() {
 }
 
 export async function stopProcess(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
+  const ownsGroup = processGroups.has(child);
+  if (hasExited(child) && !ownsGroup) return;
 
-  child.kill("SIGTERM");
-  let forceKillTimer;
-  await Promise.race([
-    once(child, "exit"),
-    new Promise(
-      (resolveDelay) => (forceKillTimer = setTimeout(resolveDelay, 3_000)),
-    ),
-  ]);
-  clearTimeout(forceKillTimer);
+  signalProcess(child, "SIGTERM", ownsGroup);
+  if (!hasExited(child)) {
+    let forceKillTimer;
+    await Promise.race([
+      once(child, "exit"),
+      new Promise(
+        (resolveDelay) => (forceKillTimer = setTimeout(resolveDelay, 3_000)),
+      ),
+    ]);
+    clearTimeout(forceKillTimer);
+  }
 
-  if (child.exitCode === null && child.signalCode === null) {
-    child.kill("SIGKILL");
-    await once(child, "exit");
+  // Also reap group members that outlived the leader or ignored SIGTERM.
+  signalProcess(child, "SIGKILL", ownsGroup);
+  if (!hasExited(child)) await once(child, "exit");
+}
+
+function hasExited(child) {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+function signalProcess(child, signal, group) {
+  if (!group) {
+    if (!hasExited(child)) child.kill(signal);
+    return;
+  }
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error.code !== "ESRCH") throw error;
   }
 }
 
